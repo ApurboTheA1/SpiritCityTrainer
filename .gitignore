@@ -1,0 +1,19 @@
+# Byte-compiled Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE & OS metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+*.tmp
+Thumbs.db
+.DS_Store

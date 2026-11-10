@@ -1,0 +1,839 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>35</ID>
+      <Description>[Resolve Game Pointers (Auto-runs on attach)]</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+{$lua}
+if syntaxcheck then return end
+sc_resolveAll()
+{$asm}
+[DISABLE]
+</AssemblerScript>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>36</ID>
+      <Description>[Master Hook] EXP &amp; Credits Multiplier + Free Shop + Fast Lure</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+{$lua}
+if syntaxcheck then return end
+sc_resolveAll()
+{$asm}
+
+aobscanmodule(plsf_aob, SpiritCity-Win64-Shipping.exe, 48 89 5C 24 20 56 57 41 56 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60)
+alloc(newmem, 2048, plsf_aob)
+
+label(hook_entry)
+label(check_credits)
+label(check_debit)
+label(do_free_shop)
+label(check_lure)
+label(xp_write)
+label(xp_done)
+label(orig_code)
+label(return_here)
+
+label(SC_XP_MULT)
+label(SC_CR_MULT)
+label(SC_XP_EN)
+label(SC_CR_EN)
+label(SC_FREE_SHOP)
+label(SC_FAST_LURE)
+label(SC_LURE_SEC)
+label(SC_FN_ADD_XP_SYM)
+label(SC_FN_ADD_CR_SYM)
+label(SC_FN_DEB_CR_SYM)
+label(SC_FN_CAN_BUY_SYM)
+label(SC_FN_LURE_SYM)
+label(SC_XP_CALLS)
+label(SC_LAST_RAW_XP)
+label(SC_LAST_MULT_XP)
+
+registersymbol(plsf_aob)
+registersymbol(SC_XP_MULT)
+registersymbol(SC_CR_MULT)
+registersymbol(SC_XP_EN)
+registersymbol(SC_CR_EN)
+registersymbol(SC_FREE_SHOP)
+registersymbol(SC_FAST_LURE)
+registersymbol(SC_LURE_SEC)
+registersymbol(SC_XP_CALLS)
+registersymbol(SC_LAST_RAW_XP)
+registersymbol(SC_LAST_MULT_XP)
+
+newmem:
+SC_XP_MULT:
+  dd (float)5.0
+SC_CR_MULT:
+  dd (float)1.0
+SC_XP_EN:
+  dd 1
+SC_CR_EN:
+  dd 0
+SC_FREE_SHOP:
+  dd 0
+SC_FAST_LURE:
+  dd 0
+SC_LURE_SEC:
+  dd (float)0.05
+  dd 0
+SC_FN_ADD_XP_SYM:
+  dq SC_FN_ADD_XP
+SC_FN_ADD_CR_SYM:
+  dq SC_FN_ADD_CR
+SC_FN_DEB_CR_SYM:
+  dq SC_FN_DEBIT_CR
+SC_FN_CAN_BUY_SYM:
+  dq SC_FN_CAN_BUY
+SC_FN_LURE_SYM:
+  dq SC_FN_LURE
+SC_XP_CALLS:
+  dq 0
+SC_LAST_RAW_XP:
+  dd 0
+SC_LAST_MULT_XP:
+  dd 0
+
+hook_entry:
+  mov r9,[rdx+10]
+  mov r10,[rdx+28]
+  test r10,r10
+  jz orig_code
+
+  cmp r9,[SC_FN_ADD_XP_SYM]
+  jne check_credits
+  inc qword ptr [SC_XP_CALLS]
+  mov eax,[r10]
+  mov [SC_LAST_RAW_XP],eax
+  mov r11d,[SC_XP_EN]
+  test r11d,r11d
+  jz xp_done
+  test eax,eax
+  jle xp_done
+  cvtsi2ss xmm0,eax
+  movss xmm1,[SC_XP_MULT]
+  mulss xmm0,xmm1
+  cvttss2si eax,xmm0
+  test eax,eax
+  jg xp_write
+  xorps xmm0,xmm0
+  ucomiss xmm1,xmm0
+  jbe xp_write
+  mov eax,1
+xp_write:
+  mov [r10],eax
+xp_done:
+  mov [SC_LAST_MULT_XP],eax
+  jmp orig_code
+
+check_credits:
+  cmp r9,[SC_FN_ADD_CR_SYM]
+  jne check_debit
+  mov r11d,[SC_CR_EN]
+  test r11d,r11d
+  jz orig_code
+  mov eax,[r10]
+  test eax,eax
+  jle orig_code
+  cvtsi2ss xmm0,eax
+  movss xmm1,[SC_CR_MULT]
+  mulss xmm0,xmm1
+  cvttss2si eax,xmm0
+  mov [r10],eax
+  jmp orig_code
+
+check_debit:
+  cmp r9,[SC_FN_DEB_CR_SYM]
+  je do_free_shop
+  cmp r9,[SC_FN_CAN_BUY_SYM]
+  jne check_lure
+do_free_shop:
+  mov r11d,[SC_FREE_SHOP]
+  test r11d,r11d
+  jz orig_code
+  mov dword ptr [r10],0
+  jmp orig_code
+
+check_lure:
+  cmp r9,[SC_FN_LURE_SYM]
+  jne orig_code
+  mov r11d,[SC_FAST_LURE]
+  test r11d,r11d
+  jz orig_code
+  mov eax,[SC_LURE_SEC]
+  mov [r10],eax
+
+orig_code:
+  mov [rsp+20],rbx
+  jmp return_here
+
+plsf_aob:
+  jmp hook_entry
+return_here:
+
+[DISABLE]
+plsf_aob:
+  db 48 89 5C 24 20
+
+unregistersymbol(plsf_aob)
+unregistersymbol(SC_XP_MULT)
+unregistersymbol(SC_CR_MULT)
+unregistersymbol(SC_XP_EN)
+unregistersymbol(SC_CR_EN)
+unregistersymbol(SC_FREE_SHOP)
+unregistersymbol(SC_FAST_LURE)
+unregistersymbol(SC_LURE_SEC)
+unregistersymbol(SC_XP_CALLS)
+unregistersymbol(SC_LAST_RAW_XP)
+unregistersymbol(SC_LAST_MULT_XP)
+dealloc(newmem)
+</AssemblerScript>
+      <CheatEntries>
+    <CheatEntry>
+      <ID>1</ID>
+      <Description>EXP Earned Multiplier (Float)</Description>
+      <VariableType>Float</VariableType>
+      <Address>SC_XP_MULT</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2</ID>
+      <Description>EXP Multiplier Enabled (0=Off, 1=On)</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_XP_EN</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3</ID>
+      <Description>Credits Earned Multiplier (Float)</Description>
+      <VariableType>Float</VariableType>
+      <Address>SC_CR_MULT</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4</ID>
+      <Description>Credits Multiplier Enabled (0=Off, 1=On)</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_CR_EN</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>5</ID>
+      <Description>Free Shop / Zero Cost Purchases (0=Off, 1=On)</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_FREE_SHOP</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>6</ID>
+      <Description>Fast Spirit Luring (0=Off, 1=On)</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_FAST_LURE</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>7</ID>
+      <Description>Fast Lure Interval Seconds (Float)</Description>
+      <VariableType>Float</VariableType>
+      <Address>SC_LURE_SEC</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>8</ID>
+      <Description>Last Raw XP</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_LAST_RAW_XP</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>9</ID>
+      <Description>Last Multiplied XP</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_LAST_MULT_XP</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>10</ID>
+      <Description>Intercepted XP Calls</Description>
+      <VariableType>8 Bytes</VariableType>
+      <Address>SC_XP_CALLS</Address>
+    </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>37</ID>
+      <Description>[Open EXP Multiplier Slider GUI Window]</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+{$lua}
+if syntaxcheck then return end
+sc_openSliderUI()
+{$asm}
+[DISABLE]
+</AssemblerScript>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>38</ID>
+      <Description>Player Progression (XP, Level, Credits, Daily Bonuses)</Description>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+    <CheatEntry>
+      <ID>11</ID>
+      <Description>Total Cumulative XP</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7A0</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>12</ID>
+      <Description>Current Level</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7A4</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>13</ID>
+      <Description>Current Spirit Credits</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7C0</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>14</ID>
+      <Description>Can Earn Daily Login EXP (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7B0</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>15</ID>
+      <Description>Can Earn Daily Todo EXP (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7B1</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>16</ID>
+      <Description>Can Earn Daily Pomo EXP (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>7B2</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>39</ID>
+      <Description>World, Game Speed, Time of Day &amp; Train</Description>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+    <CheatEntry>
+      <ID>17</ID>
+      <Description>Game Speed (TimeDilation)</Description>
+      <VariableType>Float</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>3E8</Offset>
+        <Offset>2B0</Offset>
+        <Offset>30</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>18</ID>
+      <Description>Playtime Today (Seconds)</Description>
+      <ShowAsSigned>1</ShowAsSigned>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>330</Offset>
+        <Offset>830</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>19</ID>
+      <Description>Train Speed</Description>
+      <VariableType>Double</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>350</Offset>
+        <Offset>830</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>20</ID>
+      <Description>Train Shake Multiplier</Description>
+      <VariableType>Double</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>380</Offset>
+        <Offset>830</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>21</ID>
+      <Description>Time of Day (0=Morn,1=Day,2=Sunset,3=Night)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>2D0</Offset>
+        <Offset>788</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>22</ID>
+      <Description>Sync Real-Life Clock (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>2D1</Offset>
+        <Offset>788</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>23</ID>
+      <Description>Parallax Effect Strength</Description>
+      <VariableType>Double</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>768</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>40</ID>
+      <Description>Pomodoro, Focus Timer &amp; Stopwatch</Description>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+    <CheatEntry>
+      <ID>24</ID>
+      <Description>Pomodoro State (0=Stop,1=Run,2=Pause)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>468</Offset>
+        <Offset>368</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>25</ID>
+      <Description>Pomodoro Loops</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>440</Offset>
+        <Offset>368</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>26</ID>
+      <Description>Focus Timer State (0=Stop,1=Run,2=Pause)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>3B0</Offset>
+        <Offset>358</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>27</ID>
+      <Description>Focus Timer TimePassed (Seconds)</Description>
+      <VariableType>Double</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>3B8</Offset>
+        <Offset>358</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>28</ID>
+      <Description>Focus Timer Length (Seconds)</Description>
+      <VariableType>Double</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>3D0</Offset>
+        <Offset>358</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>29</ID>
+      <Description>Stopwatch State (0=Stop,1=Run,2=Pause)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>380</Offset>
+        <Offset>360</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>30</ID>
+      <Description>Stopwatch TimePassed (Seconds)</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>384</Offset>
+        <Offset>360</Offset>
+        <Offset>458</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>41</ID>
+      <Description>Spirits, Audio &amp; UI</Description>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+    <CheatEntry>
+      <ID>31</ID>
+      <Description>Is Luring Spirit (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>2C0</Offset>
+        <Offset>798</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>32</ID>
+      <Description>Discovered Spirits Count</Description>
+      <VariableType>4 Bytes</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>2E0</Offset>
+        <Offset>798</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>33</ID>
+      <Description>Mute All Audio (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>641</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>34</ID>
+      <Description>Hide UI (0/1)</Description>
+      <VariableType>Byte</VariableType>
+      <Address>SC_GWorld</Address>
+      <Offsets>
+        <Offset>5F1</Offset>
+        <Offset>780</Offset>
+        <Offset>30</Offset>
+        <Offset>0</Offset>
+        <Offset>38</Offset>
+        <Offset>228</Offset>
+      </Offsets>
+    </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+  <UserdefinedSymbols/>
+  <LuaScript>-- Spirit City: Lofi Sessions — Cheat Engine 7.x UE5.7 Dynamic Resolver &amp; EXP Slider GUI
+local PROC_NAME = "SpiritCity-Win64-Shipping.exe"
+
+local function sc_readName(fnp, idx)
+  local blk = idx &gt;&gt; 16
+  local off = (idx &amp; 0xFFFF) * 2
+  local blkPtr = readQword(fnp + 0x10 + blk * 8)
+  if not blkPtr or blkPtr == 0 then return "" end
+  local hdr = readSmallInteger(blkPtr + off)
+  if not hdr then return "" end
+  local isWide = (hdr &amp; 1) ~= 0
+  local len = hdr &gt;&gt; 6
+  if len &lt;= 0 or len &gt; 256 then return "" end
+  if isWide then
+    local b = readBytes(blkPtr + off + 2, len * 2, true)
+    if not b then return "" end
+    local out = {}
+    for i = 1, #b, 2 do
+      out[#out + 1] = string.char(b[i] &amp; 0x7F)
+    end
+    return table.concat(out)
+  end
+  return readString(blkPtr + off + 2, len, false) or ""
+end
+
+local function sc_getObjName(fnp, obj)
+  if not obj or obj == 0 then return "" end
+  local n_idx = readInteger(obj + 0x18)
+  local n_num = readInteger(obj + 0x1C)
+  if not n_idx then return "" end
+  local s = sc_readName(fnp, n_idx)
+  if n_num and n_num &gt; 0 then s = s .. "_" .. tostring(n_num - 1) end
+  return s
+end
+
+local function sc_findFunc(fnp, clsPtr, targetName)
+  local cur = clsPtr
+  local depth = 0
+  while cur and cur ~= 0 and depth &lt; 12 do
+    local ch = readQword(cur + 0x48)
+    while ch and ch ~= 0 do
+      if sc_getObjName(fnp, ch) == targetName then
+        return ch
+      end
+      ch = readQword(ch + 0x28)
+    end
+    cur = readQword(cur + 0x40)
+    depth = depth + 1
+  end
+  return 0
+end
+
+function sc_resolveAll()
+  if getOpenedProcessID() == 0 or process ~= PROC_NAME then
+    openProcess(PROC_NAME)
+  end
+  if getOpenedProcessID() == 0 then
+    error("SpiritCity-Win64-Shipping.exe is not running!")
+  end
+
+  local gwRef = AOBScanModuleUnique(PROC_NAME, "8B 40 30 48 85 C0 75 07 48 8B 05 ?? ?? ?? ?? C3 CC")
+  if not gwRef then error("Could not find GWorld AOB!") end
+  local gwDisp = readInteger(gwRef + 11, true)
+  local gwPtr = gwRef + 15 + gwDisp
+  registerSymbol("SC_GWorld", gwPtr, true)
+
+  local fnRef = AOBScanModuleUnique(PROC_NAME, "74 09 4C 8D 3D ?? ?? ?? ?? EB 16 48 8D 0D")
+  if not fnRef then error("Could not find FNamePool AOB!") end
+  local fnDisp = readInteger(fnRef + 5, true)
+  local fnp = fnRef + 9 + fnDisp
+  registerSymbol("SC_FNamePool", fnp, true)
+
+  local world = readQword(gwPtr)
+  if not world or world == 0 then error("UWorld not loaded yet.") end
+  local gi = readQword(world + 0x228)
+  local lpArr = readQword(gi + 0x38)
+  local lp = readQword(lpArr)
+  local pc = readQword(lp + 0x30)
+  local sim = readQword(pc + 0x798)
+  local pcCls = readQword(pc + 0x10)
+  local simCls = readQword(sim + 0x10)
+
+  local fnAddXP = sc_findFunc(fnp, pcCls, "Add XP")
+  local fnAddCr = sc_findFunc(fnp, pcCls, "Add Spirit Credits")
+  local fnDebCr = sc_findFunc(fnp, pcCls, "Debit Spirit Credits")
+  local fnCanBuy = sc_findFunc(fnp, pcCls, "Check if can buy item")
+  local fnLure = sc_findFunc(fnp, simCls, "StartSpiritLuringTimer")
+
+  registerSymbol("SC_FN_ADD_XP", fnAddXP, true)
+  registerSymbol("SC_FN_ADD_CR", fnAddCr, true)
+  registerSymbol("SC_FN_DEBIT_CR", fnDebCr, true)
+  registerSymbol("SC_FN_CAN_BUY", fnCanBuy, true)
+  registerSymbol("SC_FN_LURE", fnLure, true)
+  return true
+end
+
+-- Built-in Cheat Engine Slider GUI for EXP Multiplier &amp; Game Speed
+local scForm = nil
+function sc_openSliderUI()
+  if scForm ~= nil then
+    scForm.show()
+    return
+  end
+
+  scForm = createForm(true)
+  scForm.Caption = "Spirit City — EXP Multiplier Slider"
+  scForm.Width = 420
+  scForm.Height = 250
+  scForm.Color = 0x211414
+  scForm.Position = "poScreenCenter"
+
+  local title = createLabel(scForm)
+  title.Caption = "EXP Earned Multiplier Slider"
+  title.Left = 16; title.Top = 12
+  title.Font.Size = 12; title.Font.Style = "[fsBold]"; title.Font.Color = 0xDACA73
+
+  local valLbl = createLabel(scForm)
+  valLbl.Caption = "1.00x"
+  valLbl.Left = 330; valLbl.Top = 12
+  valLbl.Font.Size = 12; valLbl.Font.Style = "[fsBold]"; valLbl.Font.Color = 0x77C1F6
+
+  local tb = createTrackBar(scForm)
+  tb.Left = 16; tb.Top = 46; tb.Width = 384
+  tb.Min = 0; tb.Max = 200; tb.Position = 4 -- 4 * 0.25 = 1.00x
+  tb.TickStyle = "tsNone"
+
+  local function applyXpMult(mult)
+    valLbl.Caption = string.format("%.2fx", mult)
+    local addr = getAddressSafe("SC_XP_MULT")
+    if addr then
+      writeFloat(addr, mult)
+      writeInteger("SC_XP_EN", 1)
+    end
+  end
+
+  tb.OnChange = function()
+    applyXpMult(tb.Position * 0.25)
+  end
+
+  local presets = {1, 2, 5, 10, 25, 50}
+  for i, p in ipairs(presets) do
+    local b = createButton(scForm)
+    b.Caption = tostring(p) .. "x"
+    b.Left = 16 + (i - 1) * 64
+    b.Top = 92; b.Width = 58; b.Height = 26
+    b.OnClick = function()
+      tb.Position = math.floor(p * 4)
+      applyXpMult(p)
+    end
+  end
+
+  local spdLbl = createLabel(scForm)
+  spdLbl.Caption = "Game Speed (TimeDilation): 1.0x"
+  spdLbl.Left = 16; spdLbl.Top = 136
+  spdLbl.Font.Size = 10; spdLbl.Font.Color = 0xF4DEE0
+
+  local tbSpd = createTrackBar(scForm)
+  tbSpd.Left = 16; tbSpd.Top = 160; tbSpd.Width = 384
+  tbSpd.Min = 1; tbSpd.Max = 200; tbSpd.Position = 10 -- 10 * 0.1 = 1.0x
+  tbSpd.TickStyle = "tsNone"
+  tbSpd.OnChange = function()
+    local spd = tbSpd.Position * 0.1
+    spdLbl.Caption = string.format("Game Speed (TimeDilation): %.1fx", spd)
+    local gw = getAddressSafe("SC_GWorld")
+    if gw then
+      local w = readQword(gw)
+      if w and w ~= 0 then
+        local lvl = readQword(w + 0x30)
+        local ws = lvl and readQword(lvl + 0x2B0) or 0
+        if ws and ws ~= 0 then
+          writeFloat(ws + 0x3E8, spd)
+        end
+      end
+    end
+  end
+
+  local info = createLabel(scForm)
+  info.Caption = "Tip: Activate '[Master Hook]' in Cheat Engine first!"
+  info.Left = 16; info.Top = 212
+  info.Font.Size = 8; info.Font.Color = 0xAA8C90
+
+  scForm.OnClose = function()
+    scForm.hide()
+    return caHide
+  end
+end
+
+-- Auto-attach &amp; resolve pointers on table open if game is running
+pcall(function()
+  if getProcessIDFromProcessName(PROC_NAME) then
+    sc_resolveAll()
+  end
+end)
+</LuaScript>
+</CheatTable>
