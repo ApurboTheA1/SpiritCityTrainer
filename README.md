@@ -43,10 +43,22 @@ A standalone **Windows desktop trainer** and companion **Cheat Engine 7.x table*
 - **Train Controls (*All Aboard!* DLC):** Adjust Train Speed (`0`–`5000`) and Train Shake Multiplier (`0.0`–`5.0`).
 - **Audio, UI & Camera:** Toggle audio mute, hide in-game HUD, adjust Camera Parallax Strength, and edit Playtime Today.
 
-### 4. Spirits, Spiritdex & Friendship
-- **Fast Spirit Luring (`0.05s` – `5.0s` interval):** Hooks and triggers `StartSpiritLuringTimer` for rapid luring and discovery.
-- **Live Spiritdex Table:** Displays all spirits with ID, Name, status (`Discovered` / `Luring...` / `Undiscovered`), and Friendship score.
-- **Friendship Editors:** Max all discovered Spirit Friendships or set the selected Spirit's score.
+### 4. Spirits, Spiritdex & Live Clue Inspector
+- **Live Room Setup Telemetry:** Displays live player room state (`Location`, `Nook / Spot`, `Activity`, and `Time of Day`) updated in real time.
+- **Companion Category Filters:** Quick-filter the companion table by room (`All`, `Bedroom`, `Kitchen`, `Train`, `Garden`, `Library`) or status (`Discovered`, `Undiscovered`).
+- **Complete Conditions & Clues Inspector for All 76 Companions:** Shows exact in-game requirements extracted directly from engine metadata:
+  - Required Room Location (`Bedroom`, `Kitchen`, `Train`, `Garden`, `Library`, or `Any Room`)
+  - Required Spot / Nook (`Desk`, `Bed`, `Lounge Rug`, `Window Sill`, `Train Seat`, etc.)
+  - Required Time of Day (`Morning`, `Day`, `Sunset`, `Night`)
+  - Required Activity (`Reading`, `Writing`, `Drawing`, `Gaming`, `Typing / Coding`, `Knitting`, `Cooking`, etc.)
+  - Required Soundscape Audio (`Birds`, `Rain`, `Fireplace`, or `Any / None Required`)
+  - Native Lure Duration (`Instant`, `2m`, `6m`, `15m`, `25m`)
+- **Live Condition Diffing & Match Status:** Instantly informs you whether your current setup matches the selected companion (`✅ All Room Conditions MATCH!`), or pinpoints exactly what is missing (`⚠️ Missing Conditions: Move to Spot: Bed, Change Time of Day to Night`).
+- **⚡ Auto-Match Time of Day:** Automatically switches in-game lighting and time of day to match the selected companion with a single click.
+- **Fast Spirit Luring (`0.05s` – `5.0s` interval):** Speeds up active luring timers so spirits arrive in seconds once conditions match.
+- **✨ Instant Discover Selected Companion:** Instantly unlocks the selected companion and sets friendship to 999.
+- **🌟 Unlock & Max ALL 76 Companions:** Unlocks all 76 spirits across all DLCs/rooms with max friendship (999) using 100% byte-accurate GVAS serialization into `%LOCALAPPDATA%\SpiritCity\Saved\SaveGames\SCLS_Spiritdex.sav`.
+- **Friendship Editors:** Set custom friendship scores for any companion or max all discovered friendships in one click.
 
 ### 5. Unlocks, Steam Achievements & Utilities
 - **Unlock All Content Packages (`0..12`)** in memory via `GameInstance.Owned Content Packages`.

@@ -9,6 +9,7 @@ ProcessEvent dynamically via AOB scans and reflection — no hardcoded addresses
 from __future__ import annotations
 
 import ctypes
+import os
 import struct
 import threading
 import time
@@ -153,6 +154,24 @@ def _aob_scan(text: bytes, base_addr: int, pat: str) -> int:
     raise RuntimeError(f"AOB signature not found: {pat}")
 
 
+TOD_NAMES: Dict[int, str] = {0: "Morning", 1: "Day", 2: "Dusk", 3: "Night"}
+LOC_NAMES: Dict[int, str] = {0: "Bedroom", 1: "Library", 2: "Train", 4: "Any Room", 5: "Garden"}
+NOOK_NAMES: Dict[int, str] = {
+    1: "Desk", 2: "Bed", 3: "Lounge Rug", 4: "Window Sill", 5: "Kitchen / Dining",
+    6: "Train Front", 7: "Train Rear", 8: "Garden Patio", 9: "Greenhouse",
+    10: "Garden Fountain", 11: "Library Armchair", 12: "Study Table",
+    13: "Upper Mezzanine", 14: "Book Stacks",
+}
+ACT_NAMES: Dict[int, str] = {
+    1: "Reading", 2: "Writing", 4: "Drawing", 5: "Gaming", 7: "Typing / Coding",
+    8: "Knitting", 10: "Stretching", 13: "Cooking", 14: "Browsing", 16: "Tea / Coffee",
+    17: "Cooking / Baking", 18: "Organizing", 19: "Picnicking", 20: "Eating", 21: "Plant Care",
+    22: "Listening to Audio", 23: "Petting", 24: "Lounging / Napping", 25: "Gardening",
+    26: "Potting", 27: "Crafting / Potions", 28: "Nature Watching", 29: "Foraging",
+    30: "Inspecting Tomes", 31: "Researching", 32: "Lighting Candles", 33: "Incantations", 34: "Archiving",
+}
+
+
 @dataclass
 class SpiritInfo:
     spirit_id: int
@@ -162,6 +181,14 @@ class SpiritInfo:
     luring: bool
     friendship: Optional[int]
     friendship_elem_addr: Optional[int]
+    category: str = "Bedroom"
+    required_tods: List[int] = field(default_factory=list)
+    required_locs: List[int] = field(default_factory=list)
+    required_rel_locs: List[int] = field(default_factory=list)
+    required_acts: List[int] = field(default_factory=list)
+    required_sounds: List[int] = field(default_factory=list)
+    minutes: int = 0
+    clues_summary: str = ""
 
 
 @dataclass
@@ -228,7 +255,7 @@ class SpiritCityEngine:
     OFF_CMD_STATE = 0x68        # uint32 (0=idle, 1=pending, 2=running)
     OFF_CMD_OBJ = 0x70          # uint64
     OFF_CMD_FN = 0x78           # uint64
-    OFF_CMD_PARMS = 0x80        # 128 bytes
+    OFF_CMD_PARMS = 0x80        # 512 bytes (up to 0x280)
 
     ORIG_PLSF_BYTES = bytes.fromhex("48895c2420")
 
@@ -548,9 +575,9 @@ class SpiritCityEngine:
         off = self.get_prop_offset(self._obj_cls(obj), prop_name)
         return self._write_fmt(obj + off, fmt, val)
 
-    def _call_named(self, obj: int, fn_name: str, parms: bytes = b"") -> bytes:
+    def _call_named(self, obj: int, fn_name: str, parms: bytes = b"", timeout_s: float = 2.0) -> bytes:
         fn = self.get_func(self._obj_cls(obj), fn_name)
-        return self.call_ufunction(obj, fn, parms)
+        return self.call_ufunction(obj, fn, parms, timeout_s=timeout_s)
 
     def _read_tarray_hdr(self, addr: int) -> Tuple[int, int, int]:
         raw = self.rpm(addr, 16)
@@ -679,13 +706,13 @@ class SpiritCityEngine:
         fn_start_lure = self.get_func(sim_cls, "StartSpiritLuringTimer")
 
         cave = self._alloc_near(self.plsf_addr, 4096)
-        data_block = bytearray(0x100)
+        data_block = bytearray(0x300)
         struct.pack_into("<ffIIIIfI", data_block, 0x00, 1.0, 1.0, 1, 0, 0, 0, 0.05, 0)
         struct.pack_into("<QQQQQ", data_block, 0x20, fn_add_xp, fn_add_cr, fn_deb_cr, fn_can_buy, fn_start_lure)
         struct.pack_into("<QiiQQ", data_block, 0x48, 0, 0, 0, self.pe_addr, self.plsf_addr + 5)
         self.wpm(cave, bytes(data_block))
 
-        code_base = cave + 0x100
+        code_base = cave + 0x300
         buf = bytearray()
         labels: Dict[str, int] = {}
         fixups: List[Tuple[int, Any, bool]] = []
@@ -841,14 +868,14 @@ class SpiritCityEngine:
             raise RuntimeError("Invalid target object or UFunction pointer.")
 
         with self._cmd_lock:
-            self.wpm(self.cave_addr + self.OFF_CMD_PARMS, parms.ljust(128, b"\x00")[:128])
+            self.wpm(self.cave_addr + self.OFF_CMD_PARMS, parms.ljust(512, b"\x00")[:512])
             self._write_fmt(self.cave_addr + self.OFF_CMD_OBJ, "QQ", obj_ptr, fn_ptr)
             self._write_fmt(self.cave_addr + self.OFF_CMD_STATE, "I", 1)
 
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:
                 if self.read_u(self.cave_addr + self.OFF_CMD_STATE) == 0:
-                    return self.rpm(self.cave_addr + self.OFF_CMD_PARMS, 128) or b""
+                    return self.rpm(self.cave_addr + self.OFF_CMD_PARMS, 512) or b""
                 time.sleep(0.01)
 
             self._write_fmt(self.cave_addr + self.OFF_CMD_STATE, "I", 0)
@@ -957,7 +984,16 @@ class SpiritCityEngine:
 
     def trigger_save(self) -> None:
         if pc := self.get_pc():
-            self._call_named(pc, "TriggerSave")
+            try:
+                self._call_named(pc, "TriggerSave")
+            except Exception:
+                pass
+        if sim := self.get_sim():
+            try:
+                self._call_named(sim, "Trigger Save")
+                self._call_named(sim, "Save")
+            except Exception:
+                pass
 
     def set_daily_bonuses_available(self, login: bool = True, todo: bool = True, pomo: bool = True) -> None:
         if pc := self.get_pc():
@@ -970,7 +1006,7 @@ class SpiritCityEngine:
         if ws := self.get_world_settings():
             self._write_prop(ws, "TimeDilation", "f", max(0.05, float(speed)))
 
-    def set_time_of_day(self, scenario: int, sync_real_clock: bool) -> None:
+    def set_time_of_day(self, scenario: int, sync_real_clock: bool = False) -> None:
         if tod := self.get_tod_mgr():
             self._write_prop(tod, "Play with real life clock (or play with set lighting)", "B", int(sync_real_clock))
             self._call_named(tod, "UI_TriggerNewTimeOfDay", struct.pack("<B", int(scenario) & 0xFF))
@@ -1042,6 +1078,143 @@ class SpiritCityEngine:
         if sim := self.get_sim():
             self._call_named(sim, "StartSpiritLuringTimer", struct.pack("<f", max(0.01, float(interval_sec))))
 
+    @staticmethod
+    def _get_spiritdex_sav_path() -> str:
+        return os.path.expandvars(r"%LOCALAPPDATA%\SpiritCity\Saved\SaveGames\SCLS_Spiritdex.sav")
+
+    def _read_spiritdex_file(self) -> Tuple[List[int], Dict[int, int]]:
+        path = self._get_spiritdex_sav_path()
+        if not os.path.isfile(path):
+            return [], {}
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+
+            disc_ids: List[int] = []
+            tag_disc = b"\x16\x00\x00\x00Spirit IDs discovered\x00"
+            idx_disc = data.find(tag_disc)
+            if idx_disc != -1:
+                # 26 (name) + 18 (ArrayProperty) + 4 (01 00 00 00) + 16 (IntProperty) + 4 (index) = 68
+                pos = idx_disc + 68
+                count = struct.unpack_from("<I", data, pos + 5)[0]
+                disc_ids = list(struct.unpack(f"<{count}i", data[pos + 9 : pos + 9 + count * 4]))
+
+            friendships: Dict[int, int] = {}
+            tag_friend = b"\x1f\x00\x00\x00Spirit IDs to Friendship score\x00"
+            idx_friend = data.find(tag_friend)
+            if idx_friend != -1:
+                # 35 (name) + 16 (MapProperty) + 4 (02) + 20 (IntProperty+trailer) + 20 (IntProperty+trailer) = 95
+                pos = idx_friend + 95
+                count = struct.unpack_from("<I", data, pos + 9)[0]
+                for i in range(count):
+                    k, v = struct.unpack_from("<ii", data, pos + 13 + i * 8)
+                    friendships[k] = v
+
+            return disc_ids, friendships
+        except Exception:
+            return [], {}
+
+    def _save_spiritdex_file(self, discovered_ids: List[int], friendship_map: Dict[int, int]) -> bool:
+        path = self._get_spiritdex_sav_path()
+        if not os.path.isfile(path):
+            return False
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+
+            tag_disc = b"\x16\x00\x00\x00Spirit IDs discovered\x00"
+            idx_disc = data.find(tag_disc)
+            if idx_disc == -1:
+                return False
+
+            prefix = data[:idx_disc]
+
+            # 1. Spirit IDs discovered
+            p_disc = bytearray()
+            p_disc += b"\x16\x00\x00\x00Spirit IDs discovered\x00"
+            p_disc += b"\x0e\x00\x00\x00ArrayProperty\x00"
+            p_disc += b"\x01\x00\x00\x00"
+            p_disc += b"\x0c\x00\x00\x00IntProperty\x00"
+            p_disc += b"\x00\x00\x00\x00"
+
+            num_disc = len(discovered_ids)
+            tag_size_disc = 4 + num_disc * 4
+            p_disc += struct.pack("<IBI", tag_size_disc, 0, num_disc)
+            for sid in discovered_ids:
+                p_disc += struct.pack("<i", sid)
+
+            # 2. Spirit IDs to Friendship score
+            p_friend = bytearray()
+            p_friend += b"\x1f\x00\x00\x00Spirit IDs to Friendship score\x00"
+            p_friend += b"\x0c\x00\x00\x00MapProperty\x00"
+            p_friend += b"\x02\x00\x00\x00"
+            p_friend += b"\x0c\x00\x00\x00IntProperty\x00\x00\x00\x00\x00"
+            p_friend += b"\x0c\x00\x00\x00IntProperty\x00\x00\x00\x00\x00"
+
+            num_friend = len(friendship_map)
+            tag_size_friend = 4 + 4 + num_friend * 8
+            p_friend += struct.pack("<IBII", tag_size_friend, 0, 0, num_friend)
+            for sid, score in friendship_map.items():
+                p_friend += struct.pack("<ii", sid, score)
+
+            # 3. Terminator
+            terminator = b"\x05\x00\x00\x00None\x00\x00\x00\x00\x00"
+
+            new_data = bytes(prefix) + bytes(p_disc) + bytes(p_friend) + terminator
+            with open(path, "wb") as f:
+                f.write(new_data)
+            return True
+        except Exception:
+            return False
+
+    def get_room_state(self) -> Dict[str, Any]:
+        sim = self.get_sim()
+        if not sim:
+            return {}
+        loc_mgr = self.read_q(sim + 0x558)
+        loc = self.read_b(loc_mgr + 0x2c0) if loc_mgr else 0
+        rel = self.read_b(loc_mgr + 0x2c1) if loc_mgr else 0
+        act = self.read_b(loc_mgr + 0x2c2) if loc_mgr else 0
+
+        tod_mgr = self.get_tod_mgr()
+        tod = self.read_b(tod_mgr + 0x2d0) if tod_mgr else 0
+
+        return {
+            "location_id": loc,
+            "location_name": LOC_NAMES.get(loc, f"Loc {loc}"),
+            "nook_id": rel,
+            "nook_name": NOOK_NAMES.get(rel, f"Spot {rel}"),
+            "activity_id": act,
+            "activity_name": ACT_NAMES.get(act, f"Act {act}"),
+            "time_of_day_id": tod,
+            "time_of_day_name": TOD_NAMES.get(tod, f"TOD {tod}"),
+        }
+
+    def check_spirit_match(self, s: SpiritInfo, room: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+        if room is None:
+            room = self.get_room_state()
+        if not room:
+            return False, "Not connected to game"
+        missing = []
+        if s.required_locs and 4 not in s.required_locs and room["location_id"] not in s.required_locs:
+            expected = "/".join(LOC_NAMES.get(l, str(l)) for l in s.required_locs)
+            missing.append(f"Move to Room: {expected} (current: {room['location_name']})")
+        if s.required_rel_locs and room["nook_id"] not in s.required_rel_locs:
+            expected = "/".join(NOOK_NAMES.get(n, str(n)) for n in s.required_rel_locs)
+            missing.append(f"Move to Spot: {expected} (current: {room['nook_name']})")
+        if s.required_tods and room["time_of_day_id"] not in s.required_tods:
+            expected = "/".join(TOD_NAMES.get(t, str(t)) for t in s.required_tods)
+            missing.append(f"Change Time of Day to {expected} (current: {room['time_of_day_name']})")
+        if s.required_acts and room["activity_id"] not in s.required_acts:
+            expected = "/".join(ACT_NAMES.get(a, str(a)) for a in s.required_acts)
+            missing.append(f"Change Activity to {expected} (current: {room['activity_name']})")
+        if s.required_sounds:
+            missing.append("Turn on Soundscape audio (e.g. Birds/Rain/Fireplace)")
+
+        if not missing:
+            return True, "✅ All Room Conditions MATCH! Companion can be lured right now!"
+        return False, "⚠️ Missing Conditions:\n• " + "\n• ".join(missing)
+
     def get_spirits(self) -> List[SpiritInfo]:
         sim = self.get_sim()
         if not sim:
@@ -1058,13 +1231,23 @@ class SpiritCityEngine:
         discovered = read_int_set("Spirit IDs discovered")
         luring = read_int_set("Spirit IDs luring")
 
+        # Also merge with discovered IDs from save file if any
+        sav_disc, sav_friend = self._read_spiritdex_file()
+        for sid in sav_disc:
+            discovered.add(sid)
+
         fp, fnum, _ = self._read_tarray_hdr(sim + self.get_prop_offset(sim_cls, "Spirit IDs to Friendship score"))
-        friendships: Dict[int, Tuple[int, int]] = {}
+        friendships: Dict[int, Tuple[int, Optional[int]]] = {}
         if fp and 0 < fnum < 500:
             raw_map = self.rpm(fp, fnum * 16) or b""
             for i in range(len(raw_map) // 16):
                 sid, val, _, _ = struct.unpack_from("<iiii", raw_map, i * 16)
                 friendships[sid] = (val, fp + i * 16 + 4)
+
+        # Merge with save file friendships
+        for sid, score in sav_friend.items():
+            if sid not in friendships:
+                friendships[sid] = (score, None)
 
         ap, anum, _ = self._read_tarray_hdr(sim + self.get_prop_offset(sim_cls, "All Spirit Entries"))
         out: List[SpiritInfo] = []
@@ -1072,10 +1255,48 @@ class SpiritCityEngine:
             raw_entries = self.rpm(ap, anum * 496)
             if raw_entries and len(raw_entries) >= anum * 496:
                 for i in range(anum):
+                    entry_addr = ap + i * 496
                     str_ptr, str_len, _, sid, dn_idx = struct.unpack_from("<QIIiI", raw_entries, i * 496)
                     code = self._read_fstr_data(str_ptr, str_len)
                     dname = self.get_fname(dn_idx) or code
                     fval, faddr = friendships.get(sid, (None, None))
+
+                    # Read conditions
+                    cond_addr = entry_addr + 0xf8
+
+                    def _tarray_u8(sub_off: int) -> List[int]:
+                        p, n, _ = self._read_tarray_hdr(cond_addr + sub_off)
+                        return list(self.rpm(p, n) or b"") if p and 0 < n < 64 else []
+
+                    locs = _tarray_u8(0x08)
+                    rel_locs = _tarray_u8(0x18)
+                    tods = _tarray_u8(0x28)
+                    acts = _tarray_u8(0x38)
+                    sounds = _tarray_u8(0x48)
+                    mins_raw = self.rpm(cond_addr + 0x88, 4)
+                    mins = struct.unpack_from("<i", mins_raw, 0)[0] if mins_raw else 0
+
+                    # Category
+                    if sid in (901, 902) or (1 <= sid <= 25):
+                        cat = "Bedroom"
+                    elif 102 <= sid <= 113:
+                        cat = "Kitchen"
+                    elif 201 <= sid <= 211:
+                        cat = "Train"
+                    elif 301 <= sid <= 313:
+                        cat = "Garden"
+                    elif 401 <= sid <= 413:
+                        cat = "Library"
+                    else:
+                        cat = "Bedroom"
+
+                    tod_str = "/".join(TOD_NAMES.get(t, f"TOD {t}") for t in tods) if tods else "Any Time"
+                    nook_str = "/".join(NOOK_NAMES.get(n, f"Spot {n}") for n in rel_locs) if rel_locs else "Any Spot"
+                    act_str = "/".join(ACT_NAMES.get(a, f"Act {a}") for a in acts) if acts else "Any Activity"
+                    snd_str = "Soundscape" if sounds else "Any Audio"
+                    dur_str = f"{mins}m" if mins > 0 else "Instant"
+                    clues = f"{cat} | {tod_str} | {nook_str} | {act_str} | {snd_str} ({dur_str})"
+
                     out.append(
                         SpiritInfo(
                             spirit_id=sid,
@@ -1085,23 +1306,102 @@ class SpiritCityEngine:
                             luring=sid in luring,
                             friendship=fval,
                             friendship_elem_addr=faddr,
+                            category=cat,
+                            required_tods=tods,
+                            required_locs=locs,
+                            required_rel_locs=rel_locs,
+                            required_acts=acts,
+                            required_sounds=sounds,
+                            minutes=mins,
+                            clues_summary=clues,
                         )
                     )
         out.sort(key=lambda s: s.spirit_id)
         return out
 
     def max_all_friendships(self, score: int = 999) -> int:
+        val = max(0, int(score))
+        spirits = self.get_spirits()
         count = 0
-        for s in self.get_spirits():
-            if s.friendship_elem_addr and self._write_fmt(s.friendship_elem_addr, "i", int(score)):
+
+        # 1. Update in-memory for all spirits with known element addresses
+        for s in spirits:
+            if s.friendship_elem_addr and self._write_fmt(s.friendship_elem_addr, "i", val):
                 count += 1
-        return count
+
+        # 2. Update SCLS_Spiritdex.sav for all discovered spirits
+        disc_ids, f_map = self._read_spiritdex_file()
+        for s in spirits:
+            if s.discovered:
+                if s.spirit_id not in disc_ids:
+                    disc_ids.append(s.spirit_id)
+                f_map[s.spirit_id] = val
+        self._save_spiritdex_file(disc_ids, f_map)
+
+        # 3. Save to SCLS_Spiritdex.sav is already cleanly performed above
+        return max(count, len(disc_ids))
 
     def set_spirit_friendship(self, spirit_id: int, score: int) -> bool:
-        for s in self.get_spirits():
-            if s.spirit_id == spirit_id and s.friendship_elem_addr:
-                return self._write_fmt(s.friendship_elem_addr, "i", int(score))
-        return False
+        val = max(0, int(score))
+        spirits = self.get_spirits()
+        target = next((s for s in spirits if s.spirit_id == spirit_id), None)
+
+        mem_ok = False
+        if target and target.friendship_elem_addr:
+            mem_ok = self._write_fmt(target.friendship_elem_addr, "i", val)
+
+        disc_ids, f_map = self._read_spiritdex_file()
+        if target and target.discovered and spirit_id not in disc_ids:
+            disc_ids.append(spirit_id)
+        f_map[spirit_id] = val
+        sav_ok = self._save_spiritdex_file(disc_ids, f_map)
+
+        return bool(mem_ok or sav_ok)
+
+    def discover_spirit(self, spirit_id: int, friendship: int = 999) -> bool:
+        val = max(0, int(friendship))
+        disc_ids, f_map = self._read_spiritdex_file()
+        if spirit_id not in disc_ids:
+            disc_ids.append(spirit_id)
+        f_map[spirit_id] = val
+        sav_ok = self._save_spiritdex_file(disc_ids, f_map)
+
+        if sim := self.get_sim():
+            sim_cls = self._obj_cls(sim)
+            d_ptr, d_num, d_max = self._read_tarray_hdr(sim + self.get_prop_offset(sim_cls, "Spirit IDs discovered"))
+            if d_ptr and d_num < d_max:
+                raw = self.rpm(d_ptr, d_num * 4) or b""
+                curr_ids = list(struct.unpack(f"<{d_num}i", raw)) if len(raw) == d_num * 4 else []
+                if spirit_id not in curr_ids:
+                    self._write_fmt(d_ptr + d_num * 4, "i", spirit_id)
+                    self._write_fmt(sim + self.get_prop_offset(sim_cls, "Spirit IDs discovered") + 8, "i", d_num + 1)
+            try:
+                self._call_named(sim, "Retroactively Unlock Spirit Achievements")
+            except Exception:
+                pass
+        return bool(sav_ok)
+
+    def discover_all_spirits(self, friendship: int = 999) -> int:
+        val = max(0, int(friendship))
+        spirits = self.get_spirits()
+        all_ids = (
+            [s.spirit_id for s in spirits]
+            if spirits
+            else list(range(1, 26)) + [901, 902] + list(range(102, 114)) + list(range(201, 212)) + list(range(301, 314)) + list(range(401, 414))
+        )
+        f_map = {sid: val for sid in all_ids}
+        self._save_spiritdex_file(all_ids, f_map)
+
+        for s in spirits:
+            if s.friendship_elem_addr:
+                self._write_fmt(s.friendship_elem_addr, "i", val)
+
+        if sim := self.get_sim():
+            try:
+                self._call_named(sim, "Retroactively Unlock Spirit Achievements")
+            except Exception:
+                pass
+        return len(all_ids)
 
     # --- Content Packages, Steam Achievements, Dev Menus ---
     def unlock_all_content_packages(self) -> List[int]:

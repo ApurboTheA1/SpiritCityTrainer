@@ -10,10 +10,18 @@ import shutil
 import tkinter as tk
 from dataclasses import dataclass
 from datetime import datetime
-from tkinter import ttk
-from typing import Callable, Optional, Sequence, Tuple
+from tkinter import messagebox, ttk
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from ue_engine import GameSnapshot, SpiritCityEngine
+from ue_engine import (
+    ACT_NAMES,
+    LOC_NAMES,
+    NOOK_NAMES,
+    TOD_NAMES,
+    GameSnapshot,
+    SpiritCityEngine,
+    SpiritInfo,
+)
 
 
 # --- Cozy Lofi Color Palette ---
@@ -89,7 +97,15 @@ class SpiritCityTrainerApp:
         self.var_fast_lure_on = tk.BooleanVar(value=False)
         self.var_fast_lure_sec = tk.DoubleVar(value=0.05)
         self.var_max_friend_val = tk.StringVar(value="999")
-        self.var_edit_friend_val = tk.StringVar(value="500")
+        self.var_edit_friend_val = tk.StringVar(value="999")
+        self.var_room_state_str = tk.StringVar(value="Current Room: Connecting to game...")
+        self.var_spirit_filter = tk.StringVar(value="All")
+        self.var_selected_spirit_name = tk.StringVar(value="No Companion Selected (Click a companion in the table)")
+        self.var_selected_spirit_clues = tk.StringVar(value="Select any spirit companion in the table above to view its exact required room, spot, activity, and audio conditions.")
+        self.var_selected_spirit_match = tk.StringVar(value="")
+        self.lbl_selected_match: Optional[tk.Label] = None
+        self._selected_spirit_id: Optional[int] = None
+        self._all_spirits_cache: List[SpiritInfo] = []
 
         # Tools & status variables
         self.var_pkgs_label = tk.StringVar(value="Owned Content Packages: --")
@@ -536,57 +552,141 @@ class SpiritCityTrainerApp:
 
     # --- Tab 3: Spirits & Friendship ---
     def _build_spirits_tab(self, parent: tk.Frame) -> None:
-        c_lure = self._card(parent, "Spirit Luring & Friendship", ACCENT)
+        c_lure = self._card(parent, "Live Player Room Setup & Fast Luring", MINT)
+        
+        # Row 1: Current room setup & refresh
+        r_room = tk.Frame(c_lure, bg=CARD)
+        r_room.pack(fill="x", pady=(0, 6))
+        tk.Label(
+            r_room,
+            textvariable=self.var_room_state_str,
+            bg=CARD,
+            fg=GOLD,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+        self._btn(r_room, "🔄 Refresh List & Room State", self._refresh_spirits_tree, bg=SURFACE, fg=TEXT).pack(
+            side="right"
+        )
+
+        # Row 2: Fast luring check & timer slider
         r_l1 = tk.Frame(c_lure, bg=CARD)
         r_l1.pack(fill="x", pady=(0, 6))
         self._check(
             r_l1,
-            "Fast Spirit Luring (Intercepts StartSpiritLuringTimer)",
+            "Fast Spirit Luring (Ticks rapidly when room conditions match)",
             self.var_fast_lure_on,
             self._push_fast_lure,
             bold=True,
         ).pack(side="left")
-        self._btn(r_l1, "Apply Lure Timer Now", self._act_apply_lure_now, bg=MINT, fg="#11111b").pack(side="right")
-
-        r_l2 = tk.Frame(c_lure, bg=CARD)
-        r_l2.pack(fill="x", pady=(0, 6))
-        tk.Label(r_l2, text="Lure Tick Interval (seconds, normal = 60s):", bg=CARD, fg=MUTED).pack(side="left")
         self._scale(
-            r_l2, self.var_fast_lure_sec, 0.05, 5.0, 0.05, cmd=lambda _: self._push_fast_lure(), length=280, showvalue=True
+            r_l1, self.var_fast_lure_sec, 0.05, 5.0, 0.05, cmd=lambda _: self._push_fast_lure(), length=220, showvalue=True
         ).pack(side="left", padx=8)
+        self._btn(r_l1, "Apply Timer Now", self._act_apply_lure_now, bg=MINT, fg="#11111b").pack(side="right")
 
+        # Row 3: Friendship maxing & Unlock All
         r_fr = tk.Frame(c_lure, bg=CARD)
         r_fr.pack(fill="x", pady=(4, 0))
         tk.Label(r_fr, text="Friendship Score:", bg=CARD, fg=TEXT).pack(side="left")
         self._entry(r_fr, self.var_max_friend_val, width=7, on_enter=self._act_max_friendships).pack(side="left", padx=6)
-        self._btn(r_fr, "Max All Discovered Friendships", self._act_max_friendships, bg=ACCENT, fg="#11111b").pack(
-            side="left", padx=(0, 12)
+        self._btn(r_fr, "💖 Max All Discovered Friendships", self._act_max_friendships, bg=ACCENT, fg="#11111b").pack(
+            side="left", padx=(0, 10)
         )
-        self._btn(r_fr, "Refresh List", self._refresh_spirits_tree).pack(side="right")
+        self._btn(r_fr, "🌟 Unlock & Max ALL 76 Companions", self._act_discover_all_spirits, bg=GOLD, fg="#11111b").pack(
+            side="left"
+        )
 
-        c_tbl = self._card(parent, "Spiritdex Live Inspector (Select a Spirit to edit Friendship)")
-        cols = ("id", "name", "status", "friendship")
-        self.tree_spirits = ttk.Treeview(c_tbl, columns=cols, show="headings", height=13)
+        # Card 2: Spiritdex Table & Category Filters
+        c_tbl = self._card(parent, "Spiritdex Companions & Discovery Clues (Click any companion to inspect)", GOLD)
+
+        # Category filter bar
+        r_fil = tk.Frame(c_tbl, bg=CARD)
+        r_fil.pack(fill="x", pady=(0, 6))
+        tk.Label(r_fil, text="Filter Category:", bg=CARD, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 6))
+        for cat_label, cat_val in [
+            ("All (76)", "All"),
+            ("Bedroom (27)", "Bedroom"),
+            ("Kitchen (12)", "Kitchen"),
+            ("Train (11)", "Train"),
+            ("Garden (13)", "Garden"),
+            ("Library (13)", "Library"),
+            ("Discovered", "Discovered"),
+            ("Undiscovered", "Undiscovered"),
+        ]:
+            self._btn(
+                r_fil,
+                cat_label,
+                lambda c=cat_val: self._set_spirit_filter(c),
+                bg=SURFACE,
+                fg=TEXT,
+                padx=6,
+                pady=2,
+            ).pack(side="left", padx=2)
+
+        cols = ("id", "name", "category", "status", "friendship", "clues")
+        self.tree_spirits = ttk.Treeview(c_tbl, columns=cols, show="headings", height=11)
         for col, heading, width, anchor in (
-            ("id", "ID", 60, "center"),
-            ("name", "Spirit Name", 260, "w"),
-            ("status", "Status", 140, "center"),
-            ("friendship", "Friendship Score", 130, "center"),
+            ("id", "ID", 45, "center"),
+            ("name", "Companion Name", 140, "w"),
+            ("category", "Category", 85, "center"),
+            ("status", "Status", 95, "center"),
+            ("friendship", "Friendship", 80, "center"),
+            ("clues", "Luring Clues & Conditions Required", 380, "w"),
         ):
             self.tree_spirits.heading(col, text=heading)
             self.tree_spirits.column(col, width=width, anchor=anchor)
-        sb = ttk.Scrollbar(c_tbl, orient="vertical", command=self.tree_spirits.yview)
-        self.tree_spirits.configure(yscrollcommand=sb.set)
-        self.tree_spirits.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
 
-        r_ed = tk.Frame(parent, bg=BG, padx=14, pady=4)
-        r_ed.pack(fill="x")
-        tk.Label(r_ed, text="Set Selected Spirit Friendship:", bg=BG, fg=MUTED).pack(side="left")
-        self._entry(r_ed, self.var_edit_friend_val, width=8, on_enter=self._act_set_selected_friendship).pack(
+        sb_y = ttk.Scrollbar(c_tbl, orient="vertical", command=self.tree_spirits.yview)
+        self.tree_spirits.configure(yscrollcommand=sb_y.set)
+        self.tree_spirits.pack(side="left", fill="both", expand=True)
+        sb_y.pack(side="right", fill="y")
+        self.tree_spirits.bind("<<TreeviewSelect>>", self._on_spirit_selected)
+
+        # Card 3: Selected Spirit Inspector & Actions
+        c_sel = self._card(parent, "Selected Companion Inspector & Actions", ACCENT)
+
+        tk.Label(
+            c_sel,
+            textvariable=self.var_selected_spirit_name,
+            bg=CARD,
+            fg=GOLD,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 4))
+
+        tk.Label(
+            c_sel,
+            textvariable=self.var_selected_spirit_clues,
+            bg=CARD,
+            fg=TEXT,
+            justify="left",
+            anchor="w",
+            wraplength=800,
+        ).pack(fill="x", pady=(0, 4))
+
+        self.lbl_selected_match = tk.Label(
+            c_sel,
+            textvariable=self.var_selected_spirit_match,
+            bg=CARD,
+            fg=MINT,
+            font=("Segoe UI", 9, "bold"),
+            justify="left",
+            anchor="w",
+            wraplength=800,
+        )
+        self.lbl_selected_match.pack(fill="x", pady=(0, 8))
+
+        r_act = tk.Frame(c_sel, bg=CARD)
+        r_act.pack(fill="x")
+        self._btn(r_act, "⚡ Auto-Match Time of Day", self._act_match_tod, bg=MINT, fg="#11111b").pack(side="left", padx=(0, 8))
+        self._btn(r_act, "✨ Instant Discover Selected", self._act_discover_selected, bg=ACCENT, fg="#11111b").pack(
+            side="left", padx=(0, 14)
+        )
+        tk.Label(r_act, text="Set Friendship:", bg=CARD, fg=MUTED).pack(side="left")
+        self._entry(r_act, self.var_edit_friend_val, width=7, on_enter=self._act_set_selected_friendship).pack(
             side="left", padx=6
         )
-        self._btn(r_ed, "Apply to Selected", self._act_set_selected_friendship, bg=GOLD, fg="#11111b").pack(side="left")
+        self._btn(r_act, "Apply Score", self._act_set_selected_friendship, bg=GOLD, fg="#11111b").pack(side="left")
 
     # --- Tab 4: Unlocks, Steam & Dev Tools ---
     def _build_tools_tab(self, parent: tk.Frame) -> None:
@@ -828,38 +928,174 @@ class SpiritCityTrainerApp:
             )
         )
 
+    def _set_spirit_filter(self, cat: str) -> None:
+        self.var_spirit_filter.set(cat)
+        self._refresh_spirits_tree()
+
     def _refresh_spirits_tree(self) -> None:
         if not self.engine.is_alive():
             return
-        self.tree_spirits.delete(*self.tree_spirits.get_children())
-        for s in self.engine.get_spirits():
-            status = "Discovered" if s.discovered else ("Luring..." if s.luring else "Undiscovered")
-            fstr = str(s.friendship) if s.friendship is not None else "-"
-            self.tree_spirits.insert("", "end", iid=str(s.spirit_id), values=(s.spirit_id, s.display_name, status, fstr))
+        try:
+            # 1. Update room state display
+            room = self.engine.get_room_state()
+            if room:
+                self.var_room_state_str.set(
+                    f"🏠 Player Setup: {room['location_name']}  |  {room['nook_name']}  |  {room['activity_name']}  |  {room['time_of_day_name']}"
+                )
+
+            # 2. Re-read all spirits from memory & save file
+            spirits = self.engine.get_spirits()
+            self._all_spirits_cache = spirits
+
+            # 3. Filter spirits
+            filter_mode = self.var_spirit_filter.get()
+            if filter_mode == "Discovered":
+                filtered = [s for s in spirits if s.discovered]
+            elif filter_mode == "Undiscovered":
+                filtered = [s for s in spirits if not s.discovered]
+            elif filter_mode != "All":
+                filtered = [s for s in spirits if s.category.lower() == filter_mode.lower()]
+            else:
+                filtered = spirits
+
+            self.tree_spirits.delete(*self.tree_spirits.get_children())
+            for s in filtered:
+                status = "Discovered" if s.discovered else ("Luring..." if s.luring else "Undiscovered")
+                fstr = str(s.friendship) if s.friendship is not None else "-"
+                self.tree_spirits.insert(
+                    "",
+                    "end",
+                    iid=str(s.spirit_id),
+                    values=(s.spirit_id, s.display_name, s.category, status, fstr, s.clues_summary),
+                )
+
+            # Re-select previous selection if available
+            if self._selected_spirit_id is not None and self.tree_spirits.exists(str(self._selected_spirit_id)):
+                self.tree_spirits.selection_set(str(self._selected_spirit_id))
+                self.tree_spirits.see(str(self._selected_spirit_id))
+            self._update_selected_companion_view()
+        except Exception as exc:
+            self._toast(f"Error refreshing spirits: {exc}")
+
+    def _on_spirit_selected(self, _: tk.Event) -> None:
+        sel = self.tree_spirits.selection()
+        if not sel:
+            return
+        self._selected_spirit_id = int(sel[0])
+        self._update_selected_companion_view()
+
+    def _update_selected_companion_view(self) -> None:
+        if self._selected_spirit_id is None:
+            self.var_selected_spirit_name.set("No Companion Selected (Click a companion in the table)")
+            self.var_selected_spirit_clues.set(
+                "Select any spirit companion in the table above to view its exact required room, spot, activity, and audio conditions."
+            )
+            self.var_selected_spirit_match.set("")
+            return
+
+        s = next((sp for sp in self._all_spirits_cache if sp.spirit_id == self._selected_spirit_id), None)
+        if not s:
+            return
+
+        status_str = "Discovered" if s.discovered else ("Luring..." if s.luring else "Undiscovered")
+        fstr = f"{s.friendship} pts" if s.friendship is not None else "None"
+        self.var_selected_spirit_name.set(
+            f"Companion: {s.display_name}  (ID #{s.spirit_id})  |  Category: {s.category}  |  Status: {status_str}  |  Friendship: {fstr}"
+        )
+
+        nook_req = "/".join(NOOK_NAMES.get(n, str(n)) for n in s.required_rel_locs) if s.required_rel_locs else "Any Spot"
+        act_req = "/".join(ACT_NAMES.get(a, str(a)) for a in s.required_acts) if s.required_acts else "Any Activity"
+        tod_req = "/".join(TOD_NAMES.get(t, str(t)) for t in s.required_tods) if s.required_tods else "Any Time of Day"
+        snd_req = "Soundscape Audio (Rain, Birds, Fireplace, etc.)" if s.required_sounds else "Any Audio / None Required"
+        dur_req = f"{s.minutes} minutes" if s.minutes > 0 else "Instant"
+
+        self.var_selected_spirit_clues.set(
+            f"📋 Requirements to Lure:\n"
+            f"  • Room: {s.category}   • Spot/Nook: {nook_req}   • Time of Day: {tod_req}\n"
+            f"  • Activity: {act_req}   • Audio: {snd_req}   • Luring Duration: {dur_req}"
+        )
+
+        room = self.engine.get_room_state()
+        matched, match_msg = self.engine.check_spirit_match(s, room)
+        self.var_selected_spirit_match.set(match_msg)
+        if self.lbl_selected_match:
+            self.lbl_selected_match.configure(fg=MINT if matched else GOLD)
+
+        if s.friendship is not None:
+            self.var_edit_friend_val.set(str(s.friendship))
+
+    def _act_match_tod(self) -> None:
+        if self._selected_spirit_id is None:
+            self._toast("Select a companion first.")
+            return
+        s = next((sp for sp in self._all_spirits_cache if sp.spirit_id == self._selected_spirit_id), None)
+        if not s or not s.required_tods:
+            self._toast("Selected companion does not require a specific Time of Day.")
+            return
+
+        def _do() -> None:
+            target_tod = s.required_tods[0]
+            self.engine.set_time_of_day(target_tod, sync_real_clock=False)
+            self._refresh_spirits_tree()
+            self._toast(f"Switched Time of Day to {TOD_NAMES.get(target_tod, target_tod)} for {s.display_name}!")
+
+        self._guard(_do)
+
+    def _act_discover_selected(self) -> None:
+        if self._selected_spirit_id is None:
+            self._toast("Select a companion in the table first.")
+            return
+        sid = self._selected_spirit_id
+        s = next((sp for sp in self._all_spirits_cache if sp.spirit_id == sid), None)
+        name = s.display_name if s else f"ID #{sid}"
+
+        def _do() -> None:
+            val = int(self.var_edit_friend_val.get() or 999)
+            self.engine.discover_spirit(sid, friendship=val)
+            self._refresh_spirits_tree()
+            self._toast(f"✨ Discovered {name}! Saved to Spiritdex with {val} Friendship.")
+
+        self._guard(_do)
+
+    def _act_discover_all_spirits(self) -> None:
+        if not messagebox.askyesno(
+            "Unlock All Spirits",
+            "This will mark ALL 76 Spirit companions as Discovered across all categories (Bedroom, Kitchen, Train, Garden, Library) and max their Friendship scores.\n\nProceed?",
+        ):
+            return
+
+        def _do() -> None:
+            val = int(self.var_max_friend_val.get() or 999)
+            cnt = self.engine.discover_all_spirits(friendship=val)
+            self._refresh_spirits_tree()
+            self._toast(f"🌟 Unlocked & Maxed all {cnt} Spirit Companions!")
+
+        self._guard(_do)
 
     def _act_max_friendships(self) -> None:
         def _do() -> None:
             val = int(self.var_max_friend_val.get())
             cnt = self.engine.max_all_friendships(val)
             self._refresh_spirits_tree()
-            self._toast(f"Updated Friendship score to {val} on {cnt} Spirit entries!")
+            self._toast(f"Updated Friendship score to {val} on {cnt} companions & saved to Spiritdex!")
 
         self._guard(_do)
 
     def _act_set_selected_friendship(self) -> None:
-        sel = self.tree_spirits.selection()
-        if not sel:
-            self._toast("Select a Spirit in the table first (must have an existing Friendship entry).")
+        if self._selected_spirit_id is None:
+            self._toast("Select a Spirit in the table first.")
             return
-        sid = int(sel[0])
+        sid = self._selected_spirit_id
+        s = next((sp for sp in self._all_spirits_cache if sp.spirit_id == sid), None)
+        name = s.display_name if s else f"ID #{sid}"
 
         def _do() -> None:
             val = int(self.var_edit_friend_val.get())
             if self.engine.set_spirit_friendship(sid, val):
                 self._refresh_spirits_tree()
-                self._toast(f"Set Spirit ID {sid} Friendship to {val}!")
+                self._toast(f"Set {name} Friendship to {val} & saved!")
             else:
-                self._toast(f"Spirit ID {sid} has no Friendship map entry yet (lure/discover it first).")
+                self._toast(f"Failed to set Friendship for {name}.")
 
         self._guard(_do)
 
