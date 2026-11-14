@@ -44,18 +44,20 @@ A standalone **Windows desktop trainer** and companion **Cheat Engine 7.x table*
 - **Audio, UI & Camera:** Toggle audio mute, hide in-game HUD, adjust Camera Parallax Strength, and edit Playtime Today.
 
 ### 4. Spirits, Spiritdex & Live Clue Inspector
-- **Live Room Setup Telemetry:** Displays live player room state (`Location`, `Nook / Spot`, `Activity`, and `Time of Day`) updated in real time.
+- **Live Room & Audio Setup Telemetry:** Displays live player room state (`Location`, `Nook / Spot`, `Activity`, `Time of Day`, `Active Soundscapes`, and `Equipped Companion`) updated in real time.
 - **Companion Category Filters:** Quick-filter the companion table by room (`All`, `Bedroom`, `Kitchen`, `Train`, `Garden`, `Library`) or status (`Discovered`, `Undiscovered`).
 - **Complete Conditions & Clues Inspector for All 76 Companions:** Shows exact in-game requirements extracted directly from engine metadata:
   - Required Room Location (`Bedroom`, `Kitchen`, `Train`, `Garden`, `Library`, or `Any Room`)
   - Required Spot / Nook (`Desk`, `Bed`, `Lounge Rug`, `Window Sill`, `Train Seat`, etc.)
   - Required Time of Day (`Morning`, `Day`, `Sunset`, `Night`)
   - Required Activity (`Reading`, `Writing`, `Drawing`, `Gaming`, `Typing / Coding`, `Knitting`, `Cooking`, etc.)
-  - Required Soundscape Audio (`Birds`, `Rain`, `Fireplace`, or `Any / None Required`)
-  - Native Lure Duration (`Instant`, `2m`, `6m`, `15m`, `25m`)
-- **Live Condition Diffing & Match Status:** Instantly informs you whether your current setup matches the selected companion (`✅ All Room Conditions MATCH!`), or pinpoints exactly what is missing (`⚠️ Missing Conditions: Move to Spot: Bed, Change Time of Day to Night`).
+  - Exact Required Soundscape Audio (`Forest Birds`, `Rain on Window`, `Fireplace / Crackling Fire`, `Gentle Wind`, `Vinyl Record Player`, `Winter Snow`, `Distant Thunder`, `Night Forest`, `BBQ Sizzle`, `Tasty Bubbling`, etc.)
+  - Required Equipped Companion (e.g. Bentobunny requires `Dust Bunny`, Cinnaspinner requires `Arachknit`, Syrupii requires `Goopii`)
+  - Required Room / Train Background Customization (e.g. `Train_Background_City`, `Train_Background_Sky`, etc.)
+  - Native Lure Duration (`Instant`, `2m`, `6m`, `15m`, `25m`, `40m`, `60m`)
+- **Live Condition Diffing & Match Status:** Instantly informs you whether your current setup matches the selected companion (`✅ All Room & Audio Conditions MATCH!`), or pinpoints exactly what is missing (`⚠️ Missing Conditions: Turn ON Soundscape: Fireplace, Change Time of Day to Night, Equip Companion: Dust Bunny`).
 - **⚡ Auto-Match Time of Day:** Automatically switches in-game lighting and time of day to match the selected companion with a single click.
-- **Fast Spirit Luring (`0.05s` – `5.0s` interval):** Speeds up active luring timers so spirits arrive in seconds once conditions match.
+- **Fast Spirit Luring (`0.05s` – `5.0s` interval):** Automatically evaluates conditions and advances active luring ticks so spirits arrive in seconds once conditions match.
 - **✨ Instant Discover Selected Companion:** Instantly unlocks the selected companion and sets friendship to 999.
 - **🌟 Unlock & Max ALL 76 Companions:** Unlocks all 76 spirits across all DLCs/rooms with max friendship (999) using 100% byte-accurate GVAS serialization into `%LOCALAPPDATA%\SpiritCity\Saved\SaveGames\SCLS_Spiritdex.sav`.
 - **Friendship Editors:** Set custom friendship scores for any companion or max all discovered friendships in one click.

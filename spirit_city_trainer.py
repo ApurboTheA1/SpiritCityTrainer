@@ -17,6 +17,7 @@ from ue_engine import (
     ACT_NAMES,
     LOC_NAMES,
     NOOK_NAMES,
+    SOUND_DISPLAY_NAMES,
     TOD_NAMES,
     GameSnapshot,
     SpiritCityEngine,
@@ -562,8 +563,9 @@ class SpiritCityTrainerApp:
             textvariable=self.var_room_state_str,
             bg=CARD,
             fg=GOLD,
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 9, "bold"),
             anchor="w",
+            justify="left",
         ).pack(side="left", fill="x", expand=True)
         self._btn(r_room, "🔄 Refresh List & Room State", self._refresh_spirits_tree, bg=SURFACE, fg=TEXT).pack(
             side="right"
@@ -921,12 +923,15 @@ class SpiritCityTrainerApp:
     def _act_apply_lure_now(self) -> None:
         self.var_fast_lure_on.set(True)
         self._push_fast_lure()
-        self._guard(
-            lambda: (
-                self.engine.apply_lure_timer_now(float(self.var_fast_lure_sec.get())),
-                self._toast(f"Applied fast lure interval ({self.var_fast_lure_sec.get():.2f}s)!"),
-            )
-        )
+
+        def _do() -> None:
+            self.engine.apply_lure_timer_now(float(self.var_fast_lure_sec.get()))
+            self.engine.trigger_luring_check()
+            adv = self.engine.advance_lure_timer(60)
+            self._refresh_spirits_tree()
+            self._toast(f"⚡ Evaluated luring conditions & advanced lure timer ({adv} ticks)!")
+
+        self._guard(_do)
 
     def _set_spirit_filter(self, cat: str) -> None:
         self.var_spirit_filter.set(cat)
@@ -939,8 +944,13 @@ class SpiritCityTrainerApp:
             # 1. Update room state display
             room = self.engine.get_room_state()
             if room:
+                active_s = room.get("active_sounds", [])
+                snd_str = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in active_s) if active_s else "None"
+                eq_str = room.get("equipped_companion") or "None"
                 self.var_room_state_str.set(
-                    f"🏠 Player Setup: {room['location_name']}  |  {room['nook_name']}  |  {room['activity_name']}  |  {room['time_of_day_name']}"
+                    f"🏠 Setup: {room['location_name']}  |  {room['nook_name']}  |  {room['activity_name']}  |  {room['time_of_day_name']}\n"
+                    f"🎵 Sounds: {snd_str}\n"
+                    f"🐾 Equipped Companion: {eq_str}"
                 )
 
             # 2. Re-read all spirits from memory & save file
@@ -1006,14 +1016,22 @@ class SpiritCityTrainerApp:
         nook_req = "/".join(NOOK_NAMES.get(n, str(n)) for n in s.required_rel_locs) if s.required_rel_locs else "Any Spot"
         act_req = "/".join(ACT_NAMES.get(a, str(a)) for a in s.required_acts) if s.required_acts else "Any Activity"
         tod_req = "/".join(TOD_NAMES.get(t, str(t)) for t in s.required_tods) if s.required_tods else "Any Time of Day"
-        snd_req = "Soundscape Audio (Rain, Birds, Fireplace, etc.)" if s.required_sounds else "Any Audio / None Required"
+        snd_req = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in s.required_sounds) if s.required_sounds else "Any Audio / None Required"
         dur_req = f"{s.minutes} minutes" if s.minutes > 0 else "Instant"
 
-        self.var_selected_spirit_clues.set(
-            f"📋 Requirements to Lure:\n"
-            f"  • Room: {s.category}   • Spot/Nook: {nook_req}   • Time of Day: {tod_req}\n"
-            f"  • Activity: {act_req}   • Audio: {snd_req}   • Luring Duration: {dur_req}"
-        )
+        loc_name = LOC_NAMES.get(s.required_locs[0], s.category) if s.required_locs and s.required_locs != [4] else "Any Room"
+        clues_lines = [
+            f"📋 Requirements to Lure {s.display_name}:",
+            f"  • Room: {loc_name}   • Spot/Nook: {nook_req}   • Time of Day: {tod_req}",
+            f"  • Activity: {act_req}   • Soundscape Audio: {snd_req}   • Luring Duration: {dur_req}",
+        ]
+        if s.required_equipped_spirits:
+            eq_names = [self.engine._spirit_name_cache.get(eid, f"ID #{eid}") for eid in s.required_equipped_spirits]
+            clues_lines.append(f"  • Required Equipped Companion: {', '.join(eq_names)}")
+        if s.required_wearing:
+            clues_lines.append(f"  • Required Background / Customization: {', '.join(s.required_wearing)}")
+
+        self.var_selected_spirit_clues.set("\n".join(clues_lines))
 
         room = self.engine.get_room_state()
         matched, match_msg = self.engine.check_spirit_match(s, room)

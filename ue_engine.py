@@ -171,6 +171,40 @@ ACT_NAMES: Dict[int, str] = {
     30: "Inspecting Tomes", 31: "Researching", 32: "Lighting Candles", 33: "Incantations", 34: "Archiving",
 }
 
+SOUND_DISPLAY_NAMES: Dict[str, str] = {
+    "Rain": "Rain on Window",
+    "Fire": "Fireplace / Crackling Fire",
+    "Birds": "Forest Birds",
+    "Wind": "Gentle Wind / Breeze",
+    "NightForest": "Night Forest (Crickets & Owls)",
+    "Snow": "Winter Blizzard / Walking in Snow",
+    "Thunder": "Distant Thunder",
+    "Vinyl": "Vinyl Record Player",
+    "BBQ": "Campfire / BBQ Sizzle",
+    "TastyBubbling": "Tasty Bubbling (Boiling Pot)",
+    "Cooking": "Cooking & Kitchen Sizzle",
+    "Keyboard": "Keyboard Typing",
+    "Typewriter": "Typewriter",
+    "ComfortingPurring": "Comforting Purring (Cat Purr)",
+    "WhisperingCreek": "Whispering Creek / River Stream",
+    "Train": "Train Carriage / Rail Rhythm",
+    "Chimes": "Wind Chimes",
+    "Underwater": "Underwater Ambiance",
+    "Seagulls": "Seagulls & Coastal Waves",
+    "Farm": "Bustling Farm",
+    "Leaves": "Rustling Leaves",
+    "SummerCicadas": "Summer Cicadas",
+    "JapaneseCicadas": "Japanese Cicadas",
+    "OceanSerenade": "Ocean Serenade",
+    "AmbientChatter": "Coffee Shop Chatter",
+    "Dishwasher": "Dishwasher",
+    "WhiteNoise": "White Noise",
+    "PinkNoise": "Pink Noise",
+    "BrownNoise": "Brown Noise",
+    "Crispy Snow": "Crispy Snow",
+    "Meditation": "Meditation Bowl",
+}
+
 
 @dataclass
 class SpiritInfo:
@@ -186,7 +220,9 @@ class SpiritInfo:
     required_locs: List[int] = field(default_factory=list)
     required_rel_locs: List[int] = field(default_factory=list)
     required_acts: List[int] = field(default_factory=list)
-    required_sounds: List[int] = field(default_factory=list)
+    required_sounds: List[str] = field(default_factory=list)
+    required_equipped_spirits: List[int] = field(default_factory=list)
+    required_wearing: List[str] = field(default_factory=list)
     minutes: int = 0
     clues_summary: str = ""
 
@@ -271,6 +307,7 @@ class SpiritCityEngine:
         self.gobj_addr: int = 0
         self.plsf_addr: int = 0
         self.pe_addr: int = 0
+        self._spirit_name_cache: Dict[int, str] = {}
 
         # Cave state
         self.cave_addr: int = 0
@@ -1179,6 +1216,30 @@ class SpiritCityEngine:
         tod_mgr = self.get_tod_mgr()
         tod = self.read_b(tod_mgr + 0x2d0) if tod_mgr else 0
 
+        # Active soundscapes from UI_SoundscapeEditor
+        active_sounds: List[str] = []
+        hud = self.read_q(sim + 0x540)
+        if hud:
+            editor = self.read_q(hud + 0x408)
+            if editor:
+                arr_p, arr_n, _ = self._read_tarray_hdr(editor + 0x350)
+                if arr_p and 0 < arr_n < 50:
+                    for i in range(arr_n):
+                        elem = arr_p + i * 32
+                        p, l, _ = struct.unpack_from("<QII", self.rpm(elem, 16) or b"\x00" * 16, 0)
+                        vol = struct.unpack_from("<d", self.rpm(elem + 16, 8) or b"\x00" * 8, 0)[0]
+                        if vol > 0.001:
+                            sname = self._read_fstr_data(p, l)
+                            if sname:
+                                active_sounds.append(sname)
+
+        # Equipped companion
+        equipped_companion = ""
+        acm = self.read_q(sim + 0x570)
+        if acm:
+            r_idx = self.read_u(acm + 0x3b8)
+            equipped_companion = self.get_fname(r_idx)
+
         return {
             "location_id": loc,
             "location_name": LOC_NAMES.get(loc, f"Loc {loc}"),
@@ -1188,7 +1249,31 @@ class SpiritCityEngine:
             "activity_name": ACT_NAMES.get(act, f"Act {act}"),
             "time_of_day_id": tod,
             "time_of_day_name": TOD_NAMES.get(tod, f"TOD {tod}"),
+            "active_sounds": active_sounds,
+            "equipped_companion": equipped_companion,
         }
+
+    def trigger_luring_check(self) -> None:
+        """Forces the game to evaluate current room and audio conditions for luring."""
+        if sim := self.get_sim():
+            try:
+                self._call_named(sim, "Check every spirit conditions for luring")
+            except Exception:
+                pass
+
+    def advance_lure_timer(self, ticks: int = 60) -> int:
+        """Advances active luring ticks so matched spirits arrive and get discovered."""
+        sim = self.get_sim()
+        if not sim:
+            return 0
+        actual = 0
+        for _ in range(max(1, int(ticks))):
+            try:
+                self._call_named(sim, "Add Time To Lured Spirits")
+                actual += 1
+            except Exception:
+                break
+        return actual
 
     def check_spirit_match(self, s: SpiritInfo, room: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         if room is None:
@@ -1208,11 +1293,28 @@ class SpiritCityEngine:
         if s.required_acts and room["activity_id"] not in s.required_acts:
             expected = "/".join(ACT_NAMES.get(a, str(a)) for a in s.required_acts)
             missing.append(f"Change Activity to {expected} (current: {room['activity_name']})")
+
+        # Soundscape audio verification
+        active_sounds = room.get("active_sounds", [])
         if s.required_sounds:
-            missing.append("Turn on Soundscape audio (e.g. Birds/Rain/Fireplace)")
+            missing_sounds = [snd for snd in s.required_sounds if snd not in active_sounds]
+            if missing_sounds:
+                snd_list = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in missing_sounds)
+                missing.append(f"Turn ON Soundscape: {snd_list}")
+
+        # Equipped companion verification
+        if s.required_equipped_spirits:
+            curr_equip = (room.get("equipped_companion") or "").lower()
+            req_names = [self._spirit_name_cache.get(sid, f"ID #{sid}") for sid in s.required_equipped_spirits]
+            if not any(req.lower() == curr_equip for req in req_names):
+                missing.append(f"Equip Companion: {' or '.join(req_names)} (current: {room.get('equipped_companion') or 'None'})")
+
+        # Customization / Background verification
+        if s.required_wearing:
+            missing.append(f"Equip Background / Room Decor: {', '.join(s.required_wearing)}")
 
         if not missing:
-            return True, "✅ All Room Conditions MATCH! Companion can be lured right now!"
+            return True, "✅ All Room & Audio Conditions MATCH! Companion can be lured right now!"
         return False, "⚠️ Missing Conditions:\n• " + "\n• ".join(missing)
 
     def get_spirits(self) -> List[SpiritInfo]:
@@ -1259,21 +1361,43 @@ class SpiritCityEngine:
                     str_ptr, str_len, _, sid, dn_idx = struct.unpack_from("<QIIiI", raw_entries, i * 496)
                     code = self._read_fstr_data(str_ptr, str_len)
                     dname = self.get_fname(dn_idx) or code
+                    self._spirit_name_cache[sid] = dname
                     fval, faddr = friendships.get(sid, (None, None))
 
-                    # Read conditions
-                    cond_addr = entry_addr + 0xf8
+                    # Read conditions at entry_addr + 0x100
+                    cond_addr = entry_addr + 0x100
 
                     def _tarray_u8(sub_off: int) -> List[int]:
                         p, n, _ = self._read_tarray_hdr(cond_addr + sub_off)
                         return list(self.rpm(p, n) or b"") if p and 0 < n < 64 else []
 
-                    locs = _tarray_u8(0x08)
-                    rel_locs = _tarray_u8(0x18)
-                    tods = _tarray_u8(0x28)
-                    acts = _tarray_u8(0x38)
-                    sounds = _tarray_u8(0x48)
-                    mins_raw = self.rpm(cond_addr + 0x88, 4)
+                    def _tarray_rows(sub_off: int) -> List[str]:
+                        p, n, _ = self._read_tarray_hdr(cond_addr + sub_off)
+                        rows: List[str] = []
+                        if p and 0 < n < 50:
+                            raw = self.rpm(p, n * 16) or b""
+                            for j in range(n):
+                                _, r_idx, _ = struct.unpack_from("<QII", raw, j * 16)
+                                r_name = self.get_fname(r_idx)
+                                if r_name:
+                                    rows.append(r_name)
+                        return rows
+
+                    def _tarray_i32(sub_off: int) -> List[int]:
+                        p, n, _ = self._read_tarray_hdr(cond_addr + sub_off)
+                        if p and 0 < n < 50:
+                            raw = self.rpm(p, n * 4) or b""
+                            return list(struct.unpack(f"<{n}i", raw[: n * 4]))
+                        return []
+
+                    locs = _tarray_u8(0x00)
+                    rel_locs = _tarray_u8(0x10)
+                    tods = _tarray_u8(0x20)
+                    acts = _tarray_u8(0x30)
+                    sounds = _tarray_rows(0x40)
+                    eq_spirits = _tarray_i32(0x50)
+                    wearing = _tarray_rows(0x70)
+                    mins_raw = self.rpm(cond_addr + 0x80, 4)
                     mins = struct.unpack_from("<i", mins_raw, 0)[0] if mins_raw else 0
 
                     # Category
@@ -1290,12 +1414,21 @@ class SpiritCityEngine:
                     else:
                         cat = "Bedroom"
 
+                    loc_str = "/".join(LOC_NAMES.get(l, f"Loc {l}") for l in locs) if locs and locs != [4] else "Any Room"
                     tod_str = "/".join(TOD_NAMES.get(t, f"TOD {t}") for t in tods) if tods else "Any Time"
                     nook_str = "/".join(NOOK_NAMES.get(n, f"Spot {n}") for n in rel_locs) if rel_locs else "Any Spot"
                     act_str = "/".join(ACT_NAMES.get(a, f"Act {a}") for a in acts) if acts else "Any Activity"
-                    snd_str = "Soundscape" if sounds else "Any Audio"
+                    snd_str = "/".join(SOUND_DISPLAY_NAMES.get(s, s) for s in sounds) if sounds else "Any Audio"
                     dur_str = f"{mins}m" if mins > 0 else "Instant"
-                    clues = f"{cat} | {tod_str} | {nook_str} | {act_str} | {snd_str} ({dur_str})"
+
+                    clues_parts = [cat, tod_str, nook_str, act_str, snd_str]
+                    if eq_spirits:
+                        eq_names = [self._spirit_name_cache.get(eid, f"ID #{eid}") for eid in eq_spirits]
+                        clues_parts.append(f"Equip: {'/'.join(eq_names)}")
+                    if wearing:
+                        clues_parts.append(f"Decor: {'/'.join(wearing)}")
+                    clues_parts.append(f"({dur_str})")
+                    clues = " | ".join(clues_parts)
 
                     out.append(
                         SpiritInfo(
@@ -1312,10 +1445,14 @@ class SpiritCityEngine:
                             required_rel_locs=rel_locs,
                             required_acts=acts,
                             required_sounds=sounds,
+                            required_equipped_spirits=eq_spirits,
+                            required_wearing=wearing,
                             minutes=mins,
                             clues_summary=clues,
                         )
                     )
+        out.sort(key=lambda s: s.spirit_id)
+        return out
         out.sort(key=lambda s: s.spirit_id)
         return out
 
