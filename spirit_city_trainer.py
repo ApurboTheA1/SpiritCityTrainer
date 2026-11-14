@@ -680,7 +680,8 @@ class SpiritCityTrainerApp:
 
         r_act = tk.Frame(c_sel, bg=CARD)
         r_act.pack(fill="x")
-        self._btn(r_act, "⚡ Auto-Match Time of Day", self._act_match_tod, bg=MINT, fg="#11111b").pack(side="left", padx=(0, 8))
+        self._btn(r_act, "⚡ Match TOD", self._act_match_tod, bg=MINT, fg="#11111b").pack(side="left", padx=(0, 6))
+        self._btn(r_act, "🎵 Auto-Play Sound", self._act_auto_play_sound, bg=GOLD, fg="#11111b").pack(side="left", padx=(0, 8))
         self._btn(r_act, "✨ Instant Discover Selected", self._act_discover_selected, bg=ACCENT, fg="#11111b").pack(
             side="left", padx=(0, 14)
         )
@@ -688,7 +689,7 @@ class SpiritCityTrainerApp:
         self._entry(r_act, self.var_edit_friend_val, width=7, on_enter=self._act_set_selected_friendship).pack(
             side="left", padx=6
         )
-        self._btn(r_act, "Apply Score", self._act_set_selected_friendship, bg=GOLD, fg="#11111b").pack(side="left")
+        self._btn(r_act, "Apply Score", self._act_set_selected_friendship, bg=SURFACE, fg=TEXT).pack(side="left")
 
     # --- Tab 4: Unlocks, Steam & Dev Tools ---
     def _build_tools_tab(self, parent: tk.Frame) -> None:
@@ -945,11 +946,11 @@ class SpiritCityTrainerApp:
             room = self.engine.get_room_state()
             if room:
                 active_s = room.get("active_sounds", [])
-                snd_str = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in active_s) if active_s else "None"
+                snd_str = ", ".join(f"'{SOUND_DISPLAY_NAMES.get(snd, snd)}'" for snd in active_s) if active_s else "None (All Sounds OFF)"
                 eq_str = room.get("equipped_companion") or "None"
                 self.var_room_state_str.set(
-                    f"🏠 Setup: {room['location_name']}  |  {room['nook_name']}  |  {room['activity_name']}  |  {room['time_of_day_name']}\n"
-                    f"🎵 Sounds: {snd_str}\n"
+                    f"🏠 Current Setup: {room['location_name']}  |  Spot: {room['nook_name']}  |  Activity: {room['activity_name']}  |  TOD: {room['time_of_day_name']}\n"
+                    f"🎵 Active Soundscapes: {snd_str}\n"
                     f"🐾 Equipped Companion: {eq_str}"
                 )
 
@@ -1016,7 +1017,7 @@ class SpiritCityTrainerApp:
         nook_req = "/".join(NOOK_NAMES.get(n, str(n)) for n in s.required_rel_locs) if s.required_rel_locs else "Any Spot"
         act_req = "/".join(ACT_NAMES.get(a, str(a)) for a in s.required_acts) if s.required_acts else "Any Activity"
         tod_req = "/".join(TOD_NAMES.get(t, str(t)) for t in s.required_tods) if s.required_tods else "Any Time of Day"
-        snd_req = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in s.required_sounds) if s.required_sounds else "Any Audio / None Required"
+        snd_req = ", ".join(f"'{SOUND_DISPLAY_NAMES.get(snd, snd)}'" for snd in s.required_sounds) if s.required_sounds else "Any Audio / None Required"
         dur_req = f"{s.minutes} minutes" if s.minutes > 0 else "Instant"
 
         loc_name = LOC_NAMES.get(s.required_locs[0], s.category) if s.required_locs and s.required_locs != [4] else "Any Room"
@@ -1056,6 +1057,28 @@ class SpiritCityTrainerApp:
             self.engine.set_time_of_day(target_tod, sync_real_clock=False)
             self._refresh_spirits_tree()
             self._toast(f"Switched Time of Day to {TOD_NAMES.get(target_tod, target_tod)} for {s.display_name}!")
+
+        self._guard(_do)
+
+    def _act_auto_play_sound(self) -> None:
+        if self._selected_spirit_id is None:
+            self._toast("Select a companion first.")
+            return
+        s = next((sp for sp in self._all_spirits_cache if sp.spirit_id == self._selected_spirit_id), None)
+        if not s or not s.required_sounds:
+            self._toast("Selected companion does not require any specific Soundscape audio.")
+            return
+
+        def _do() -> None:
+            activated = []
+            for snd in s.required_sounds:
+                if self.engine.set_soundscape_active(snd, active=True, volume=0.5):
+                    activated.append(SOUND_DISPLAY_NAMES.get(snd, snd))
+            self._refresh_spirits_tree()
+            if activated:
+                self._toast(f"🎵 Turned ON {', '.join(activated)}! Luring conditions evaluated.")
+            else:
+                self._toast("Could not update soundscape in game memory.")
 
         self._guard(_do)
 

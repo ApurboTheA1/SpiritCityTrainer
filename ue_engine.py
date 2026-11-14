@@ -155,54 +155,103 @@ def _aob_scan(text: bytes, base_addr: int, pat: str) -> int:
 
 
 TOD_NAMES: Dict[int, str] = {0: "Morning", 1: "Day", 2: "Dusk", 3: "Night"}
-LOC_NAMES: Dict[int, str] = {0: "Bedroom", 1: "Library", 2: "Train", 4: "Any Room", 5: "Garden"}
+LOC_NAMES: Dict[int, str] = {
+    0: "Bedroom",
+    1: "Library",
+    2: "Train",
+    3: "Terasse",
+    4: "Cafe",
+    5: "Garden",
+}
 NOOK_NAMES: Dict[int, str] = {
-    1: "Desk", 2: "Bed", 3: "Lounge Rug", 4: "Window Sill", 5: "Kitchen / Dining",
-    6: "Train Front", 7: "Train Rear", 8: "Garden Patio", 9: "Greenhouse",
-    10: "Garden Fountain", 11: "Library Armchair", 12: "Study Table",
-    13: "Upper Mezzanine", 14: "Book Stacks",
+    0: "Any Spot",
+    1: "Desk",
+    2: "Bed",
+    3: "Window Sill (Bay Window)",
+    4: "Fireplace",
+    5: "Kitchen",
+    6: "Train Interior",
+    7: "Train Exterior",
+    8: "Garden Patio",
+    9: "Greenhouse",
+    10: "Gazebo / Fountain",
+    11: "Library Foyer (Armchair)",
+    12: "Library Study (Table)",
+    13: "Library Nook (Mezzanine)",
+    14: "Library Arcana (Book Stacks)",
 }
 ACT_NAMES: Dict[int, str] = {
-    1: "Reading", 2: "Writing", 4: "Drawing", 5: "Gaming", 7: "Typing / Coding",
-    8: "Knitting", 10: "Stretching", 13: "Cooking", 14: "Browsing", 16: "Tea / Coffee",
-    17: "Cooking / Baking", 18: "Organizing", 19: "Picnicking", 20: "Eating", 21: "Plant Care",
-    22: "Listening to Audio", 23: "Petting", 24: "Lounging / Napping", 25: "Gardening",
-    26: "Potting", 27: "Crafting / Potions", 28: "Nature Watching", 29: "Foraging",
-    30: "Inspecting Tomes", 31: "Researching", 32: "Lighting Candles", 33: "Incantations", 34: "Archiving",
+    0: "Any Activity",
+    1: "Reading",
+    2: "Typing",
+    3: "Resting",
+    4: "Drawing",
+    5: "Browsing",
+    6: "Looking",
+    7: "Writing",
+    8: "Knitting",
+    9: "Studying",
+    10: "Meditating",
+    11: "Eating",
+    12: "Sleeping",
+    13: "Exercising",
+    14: "Gaming",
+    15: "Relaxing",
+    16: "Cleaning",
+    17: "Cooking",
+    18: "Baking",
+    19: "Sipping",
+    20: "Grilling",
+    21: "Mealprep",
+    22: "Taking Photos",
+    23: "Painting",
+    24: "Playing",
+    25: "Watering",
+    26: "Planting",
+    27: "Botany",
+    28: "Playing Music",
+    29: "Harvesting",
+    30: "Summoning",
+    31: "Elemental Magic",
+    32: "Cauldron Brewing",
+    33: "Spell Casting",
+    34: "Browsing Book",
 }
 
 SOUND_DISPLAY_NAMES: Dict[str, str] = {
-    "Rain": "Rain on Window",
-    "Fire": "Fireplace / Crackling Fire",
-    "Birds": "Forest Birds",
-    "Wind": "Gentle Wind / Breeze",
-    "NightForest": "Night Forest (Crickets & Owls)",
-    "Snow": "Winter Blizzard / Walking in Snow",
-    "Thunder": "Distant Thunder",
-    "Vinyl": "Vinyl Record Player",
-    "BBQ": "Campfire / BBQ Sizzle",
-    "TastyBubbling": "Tasty Bubbling (Boiling Pot)",
-    "Cooking": "Cooking & Kitchen Sizzle",
+    "Rain": "Smooth Rain",
+    "Fire": "Cozy Fireplace",
+    "Vinyl": "Soft Vinyl Noise",
+    "Thunder": "Rumbling Thunders",
+    "Wind": "Soothing Wind",
+    "NightForest": "Night Forest",
+    "Snow": "Gentle Snowstorm",
+    "Train": "Relaxing Rails",
+    "AmbientChatter": "Ambient chatter",
+    "Underwater": "Deep Sea Echoes",
+    "BBQ": "Tasty Sizzling",
+    "TastyBubbling": "Tasty Bubbling",
+    "Cooking": "Kitchen Ambience",
     "Keyboard": "Keyboard Typing",
-    "Typewriter": "Typewriter",
-    "ComfortingPurring": "Comforting Purring (Cat Purr)",
-    "WhisperingCreek": "Whispering Creek / River Stream",
-    "Train": "Train Carriage / Rail Rhythm",
-    "Chimes": "Wind Chimes",
-    "Underwater": "Underwater Ambiance",
-    "Seagulls": "Seagulls & Coastal Waves",
-    "Farm": "Bustling Farm",
-    "Leaves": "Rustling Leaves",
-    "SummerCicadas": "Summer Cicadas",
-    "JapaneseCicadas": "Japanese Cicadas",
+    "Typewriter": "Clicky Typewriter",
+    "Birds": "Birds Singing",
+    "ComfortingPurring": "Comforting purring",
+    "WhisperingCreek": "Whispering creek",
     "OceanSerenade": "Ocean Serenade",
-    "AmbientChatter": "Coffee Shop Chatter",
+    "DistantCityscape": "Distant Cityscape",
     "Dishwasher": "Dishwasher",
     "WhiteNoise": "White Noise",
     "PinkNoise": "Pink Noise",
     "BrownNoise": "Brown Noise",
+    "HolidayMelodies": "Holiday Melodies",
+    "Seagulls": "Seagulls",
+    "Chimes": "Meditative Chimes",
+    "SummerCicadas": "Summer Cicadas",
+    "JapaneseCicadas": "Japanese Cicadas",
+    "Farm": "Bustling Farm",
+    "Leaves": "Rustling Leaves",
+    "Meditation": "Meditation",
     "Crispy Snow": "Crispy Snow",
-    "Meditation": "Meditation Bowl",
 }
 
 
@@ -1275,6 +1324,34 @@ class SpiritCityEngine:
                 break
         return actual
 
+    def set_soundscape_active(self, sound_name: str, active: bool = True, volume: float = 0.5) -> bool:
+        """Toggles a soundscape active state and volume directly in UI_SoundscapeEditor memory."""
+        sim = self.get_sim()
+        if not sim:
+            return False
+        hud = self.read_q(sim + 0x540)
+        if not hud:
+            return False
+        editor = self.read_q(hud + 0x408)
+        if not editor:
+            return False
+        arr_p, arr_n, _ = self._read_tarray_hdr(editor + 0x350)
+        if not arr_p or not (0 < arr_n < 50):
+            return False
+        target_vol = float(volume) if active else 0.0
+        found = False
+        for i in range(arr_n):
+            elem = arr_p + i * 32
+            p, l, _ = struct.unpack_from("<QII", self.rpm(elem, 16) or b"\x00" * 16, 0)
+            sname = self._read_fstr_data(p, l)
+            if sname.lower() == sound_name.lower():
+                self.wpm(elem + 16, struct.pack("<d", target_vol))
+                found = True
+                break
+        if found:
+            self.trigger_luring_check()
+        return found
+
     def check_spirit_match(self, s: SpiritInfo, room: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         if room is None:
             room = self.get_room_state()
@@ -1299,7 +1376,7 @@ class SpiritCityEngine:
         if s.required_sounds:
             missing_sounds = [snd for snd in s.required_sounds if snd not in active_sounds]
             if missing_sounds:
-                snd_list = ", ".join(SOUND_DISPLAY_NAMES.get(snd, snd) for snd in missing_sounds)
+                snd_list = ", ".join(f"'{SOUND_DISPLAY_NAMES.get(snd, snd)}'" for snd in missing_sounds)
                 missing.append(f"Turn ON Soundscape: {snd_list}")
 
         # Equipped companion verification
